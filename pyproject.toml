@@ -1,0 +1,21 @@
+[project]
+name = "multi-provider-llm-gateway"
+version = "0.1.0"
+description = "Async streaming gateway over OpenAI and Anthropic with token, latency and cost telemetry"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0,<3",
+    "openai>=3.0",
+    "anthropic>=1.0",
+    "tiktoken>=0.7",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    # The SDKs above are built on httpx2 (they no longer install httpx). The tests import it directly
+    # to build in-process transports, so it is declared here with the range the SDKs themselves require.
+    "httpx2>=2.0,<3",
+]

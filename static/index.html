@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Gateway Playground</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #667085;
+    --border: #e1e4ea; --accent: #3b5bdb; --accent-text: #ffffff;
+    --danger: #c92a2a; --danger-bg: #fff0f0; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101216; --panel: #181b21; --text: #e8eaee; --muted: #9aa3b2;
+      --border: #2a2f38; --accent: #748ffc; --accent-text: #0e1116;
+      --danger: #ff8787; --danger-bg: #2a1618;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { margin: 0; font-size: 17px; }
+  .layout {
+    display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px;
+    max-width: 1200px; margin: 0 auto; padding: 16px;
+  }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 480px) { .controls { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  select, textarea, button {
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  select { width: 100%; padding: 8px; }
+  textarea { width: 100%; padding: 10px; resize: vertical; min-height: 96px; }
+  .temp-row { grid-column: 1 / -1; }
+  .temp-row .line { display: flex; align-items: center; gap: 12px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .temp-val { font-family: var(--mono); min-width: 3ch; text-align: right; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  button { padding: 9px 16px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 8px; }
+  #output {
+    white-space: pre-wrap; overflow-wrap: anywhere; min-height: 180px; max-height: 55vh;
+    overflow-y: auto; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+  }
+  #output.empty::before { content: "Response will stream here…"; color: var(--muted); }
+  .cursor::after { content: "▍"; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #error { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); }
+  aside .badge { float: right; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  aside .badge.final { color: var(--accent); border-color: var(--accent); }
+  .metric { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .metric:last-child { border-bottom: 0; }
+  .metric .name { font-size: 12px; color: var(--muted); }
+  .metric .value { font-family: var(--mono); font-size: 22px; font-weight: 600; }
+  .metric .sub { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+</style>
+</head>
+<body>
+<header><h1>LLM Gateway Playground</h1></header>
+
+<div class="layout">
+  <main class="panel">
+    <div class="controls">
+      <div>
+        <label for="provider">Provider</label>
+        <select id="provider"></select>
+      </div>
+      <div>
+        <label for="model">Model</label>
+        <select id="model"></select>
+      </div>
+      <div class="temp-row">
+        <label for="temperature">Temperature</label>
+        <div class="line">
+          <input type="range" id="temperature" min="0" max="2" step="0.05" value="0.7">
+          <span class="temp-val" id="tempVal">0.70</span>
+        </div>
+      </div>
+    </div>
+
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" placeholder="Ask anything…  (Ctrl/Cmd + Enter to send)"></textarea>
+
+    <div class="actions">
+      <button class="primary" id="send">Send</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+
+    <h2>Response</h2>
+    <div id="output" class="empty" aria-live="polite"></div>
+    <div id="error" role="alert"></div>
+  </main>
+
+  <aside class="panel">
+    <span class="badge" id="badge">idle</span>
+    <h2 style="margin-top:0">Telemetry</h2>
+    <div class="metric">
+      <div class="name">Time to first token</div>
+      <div class="value" id="mTtft">—</div>
+    </div>
+    <div class="metric">
+      <div class="name">Generation speed</div>
+      <div class="value" id="mSpeed">—</div>
+    </div>
+    <div class="metric">
+      <div class="name">Tokens</div>
+      <div class="split">
+        <div><div class="value" id="mIn">—</div><div class="sub">prompt</div></div>
+        <div><div class="value" id="mOut">—</div><div class="sub">completion</div></div>
+      </div>
+    </div>
+    <div class="metric">
+      <div class="name">Execution cost</div>
+      <div class="value" id="mCost">—</div>
+      <div class="sub" id="mCostSplit">&nbsp;</div>
+    </div>
+    <div class="metric">
+      <div class="name">Total latency</div>
+      <div class="value" id="mLatency">—</div>
+      <div class="sub" id="mSource">&nbsp;</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let catalog = {};
+let controller = null;
+
+const fmtMs = (ms) => `${Math.round(ms)} ms`;
+const fmtUsd = (v) => `$${v.toFixed(6)}`;
+
+function fillModels() {
+  const cfg = catalog[$("provider").value];
+  $("model").replaceChildren(...cfg.models.map((m) => new Option(m, m)));
+  const t = $("temperature");
+  t.max = cfg.max_temperature;
+  if (parseFloat(t.value) > cfg.max_temperature) t.value = cfg.max_temperature;
+  $("tempVal").textContent = parseFloat(t.value).toFixed(2);
+}
+
+async function init() {
+  try {
+    const res = await fetch("/api/models");
+    catalog = await res.json();
+    $("provider").replaceChildren(...Object.keys(catalog).map((p) => new Option(p, p)));
+    fillModels();
+  } catch {
+    showError("Could not load model list from the server.");
+  }
+}
+
+function showError(msg) {
+  const el = $("error");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function resetTelemetry() {
+  for (const id of ["mTtft", "mSpeed", "mIn", "mOut", "mCost", "mLatency"]) $(id).textContent = "—";
+  $("mCostSplit").innerHTML = "&nbsp;";
+  $("mSource").innerHTML = "&nbsp;";
+}
+
+function setBadge(text, final = false) {
+  const b = $("badge");
+  b.textContent = text;
+  b.classList.toggle("final", final);
+}
+
+function setBusy(busy) {
+  $("send").disabled = busy;
+  $("stop").disabled = !busy;
+  for (const id of ["provider", "model", "temperature", "prompt"]) $(id).disabled = busy;
+  $("output").classList.toggle("cursor", busy);
+}
+
+function applyFinal(t) {
+  $("mTtft").textContent = t.ttft_s == null ? "n/a" : fmtMs(t.ttft_s * 1000);
+  $("mSpeed").textContent = `${t.tokens_per_second.toFixed(1)} tok/s`;
+  $("mIn").textContent = t.input_tokens.toLocaleString();
+  $("mOut").textContent = t.output_tokens.toLocaleString();
+  $("mCost").textContent = fmtUsd(t.total_cost_usd);
+  $("mCostSplit").textContent = `in ${fmtUsd(t.input_cost_usd)} · out ${fmtUsd(t.output_cost_usd)}`;
+  $("mLatency").textContent = `${t.total_latency_s.toFixed(2)} s`;
+  $("mSource").textContent = t.usage_source === "estimated" ? "tokens estimated (tiktoken)" : "usage reported by provider";
+  setBadge("final", true);
+}
+
+function parseSSE(block) {
+  let event = "message";
+  const data = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  return { event, data: data.length ? JSON.parse(data.join("\n")) : null };
+}
+
+async function readError(res) {
+  try {
+    const body = await res.json();
+    if (typeof body.detail === "string") return body.detail;
+  } catch { /* fall through */ }
+  return `Request failed (HTTP ${res.status}).`;
+}
+
+async function run() {
+  const prompt = $("prompt").value.trim();
+  if (!prompt || controller) return;
+
+  controller = new AbortController();
+  const out = $("output");
+  const text = document.createTextNode("");
+  out.replaceChildren(text);
+  out.classList.remove("empty");
+  $("error").style.display = "none";
+  resetTelemetry();
+  setBadge("live (approx.)");
+  setBusy(true);
+
+  const t0 = performance.now();
+  let gotFirst = false;
+  let chunks = 0;
+  const timer = setInterval(() => {
+    $("mLatency").textContent = `${((performance.now() - t0) / 1000).toFixed(1)} s`;
+  }, 100);
+
+  try {
+    const res = await fetch("/api/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        provider: $("provider").value,
+        model: $("model").value,
+        prompt,
+        temperature: parseFloat($("temperature").value),
+      }),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const { event, data } = parseSSE(buf.slice(0, idx));
+        buf = buf.slice(idx + 2);
+
+        if (event === "token") {
+          if (!gotFirst) {
+            gotFirst = true;
+            $("mTtft").textContent = `~${fmtMs(performance.now() - t0)}`;
+          }
+          chunks += 1;
+          text.data += data.delta;
+          $("mOut").textContent = `~${chunks}`;
+          out.scrollTop = out.scrollHeight;
+        } else if (event === "final") {
+          applyFinal(data);
+        } else if (event === "error") {
+          const retry = data.retry_after_s ? ` Retry in ~${Math.ceil(data.retry_after_s)}s.` : "";
+          showError(`${data.message}${retry}`);
+          setBadge("error");
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") setBadge("stopped");
+    else { showError(err.message || "Connection lost."); setBadge("error"); }
+  } finally {
+    clearInterval(timer);
+    controller = null;
+    setBusy(false);
+  }
+}
+
+$("provider").addEventListener("change", fillModels);
+$("temperature").addEventListener("input", (e) => {
+  $("tempVal").textContent = parseFloat(e.target.value).toFixed(2);
+});
+$("send").addEventListener("click", run);
+$("stop").addEventListener("click", () => controller && controller.abort());
+$("prompt").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
+});
+init();
+</script>
+</body>
+</html>

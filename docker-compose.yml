@@ -1,0 +1,18 @@
+services:
+  gateway:
+    build: .
+    image: llm-gateway:latest
+    ports:
+      - "8000:8000"
+    # Compose reads these from your shell or from a .env file next to this file.
+    # An empty value just means "no key for that provider".
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/models', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
